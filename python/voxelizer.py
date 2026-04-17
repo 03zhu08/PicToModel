@@ -42,12 +42,23 @@ def voxelize_mask(
                 mc_y = h - 1 - row
 
                 if symmetrical and extrusion_mode == "rounded":
-                    # Symmetrical mode: fill continuously from center, extending equally to both sides
-                    center_z = max_depth // 2
-                    half_d = (d + 1) // 2  # Round up to ensure full coverage
-                    z_start = max(0, center_z - half_d)
-                    z_end = min(max_depth, center_z + half_d)
-                    voxel_grid[col, mc_y, z_start:z_end] = True
+                    # Symmetrical mode: both halves meet at center with no gap
+                    center_z = max_depth / 2.0
+                    half_d = d / 2.0
+
+                    # Front half: from (center - half_d) to center
+                    front_start = int(max(0, center_z - half_d))
+                    front_end = int(center_z)
+
+                    # Back half: from center to (center + half_d)
+                    back_start = int(center_z)
+                    back_end = int(min(max_depth, center_z + half_d))
+
+                    # Fill both halves (they meet at center)
+                    if front_start < front_end:
+                        voxel_grid[col, mc_y, front_start:front_end] = True
+                    if back_start < back_end:
+                        voxel_grid[col, mc_y, back_start:back_end] = True
                 else:
                     # Original centered mode
                     z_start = (max_depth - d) // 2

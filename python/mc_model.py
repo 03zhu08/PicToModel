@@ -51,10 +51,12 @@ def generate_mc_model(
     sx, sy, sz = grid_shape
 
     max_dim = max(sx, sy, sz)
-    scale = 48.0 / max_dim if max_dim > 48 else 1.0
+    # Scale to fit within Blockbench's Y limits (-16 to 31.25 = ~47 total)
+    scale = 46.0 / max_dim if max_dim > 46 else 1.0
 
+    # Center on Y=0, but shift up slightly to fit within -16 to 31.25 range
     offset_x = (16 - sx * scale / 2)
-    offset_y = (16 - sy * scale / 2)
+    offset_y = -(sy * scale / 2) + 7.5  # Shift up so range is roughly -16 to 31
     offset_z = (16 - sz * scale / 2)
 
     elements = []
@@ -139,10 +141,12 @@ def generate_mc_model_colored(
     h_mask = mask.shape[0]
 
     max_dim = max(sx, sy, sz)
-    scale = 48.0 / max_dim if max_dim > 48 else 1.0
+    # Scale to fit within Blockbench's Y limits (-16 to 31.25 = ~47 total)
+    scale = 46.0 / max_dim if max_dim > 46 else 1.0
 
+    # Center on Y=0, but shift up slightly to fit within -16 to 31.25 range
     offset_x = (16 - sx * scale / 2)
-    offset_y = (16 - sy * scale / 2)
+    offset_y = -(sy * scale / 2) + 7.5  # Shift up so range is roughly -16 to 31
     offset_z = (16 - sz * scale / 2)
 
     # Build a texture atlas that contains the entire color grid
