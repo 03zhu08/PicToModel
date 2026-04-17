@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    font-size: 13px;
+  }
+
+  #root {
+    height: 100vh;
+    width: 100vw;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #c4c4c4;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a0a0a0;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-mc-secondary border border-mc-border rounded-lg;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-mc-accent text-white font-medium rounded
+           hover:bg-mc-accent-hover active:scale-[0.98] transition-all duration-150
+           shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-white border border-mc-border text-mc-text rounded
+           hover:bg-mc-hover active:scale-[0.98] transition-all duration-150;
+  }
+
+  .slider-track {
+    @apply w-full h-1.5 bg-mc-tertiary rounded-full appearance-none cursor-pointer;
+  }
+
+  .slider-track::-webkit-slider-thumb {
+    @apply appearance-none w-3.5 h-3.5 bg-mc-accent rounded-full cursor-pointer
+           shadow-sm;
+  }
+}
