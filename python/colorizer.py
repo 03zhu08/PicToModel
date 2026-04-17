@@ -108,17 +108,27 @@ def get_uv_for_color(
 ) -> list[float]:
     """
     Get the Minecraft UV coordinates [u1, v1, u2, v2] for a color in the atlas.
-    MC UV space is [0, 16] mapped to [0, 1] of the texture.
+    MC UV space is [0, 16] mapped to the entire texture.
+    Returns UV that covers the entire tile for the color.
     """
     idx = color_to_index.get(color, 0)
     tile_x = idx % atlas_size
     tile_y = idx // atlas_size
 
-    tile_uv_size = 16.0 / atlas_size
-    u1 = tile_x * tile_uv_size
-    v1 = tile_y * tile_uv_size
-    u2 = u1 + tile_uv_size
-    v2 = v1 + tile_uv_size
+    # Calculate pixel coordinates in the texture
+    pixel_x1 = tile_x * tile_size
+    pixel_y1 = tile_y * tile_size
+    pixel_x2 = pixel_x1 + tile_size
+    pixel_y2 = pixel_y1 + tile_size
+
+    # Total texture size in pixels
+    texture_size = atlas_size * tile_size
+
+    # Convert to Minecraft UV space [0, 16]
+    u1 = (pixel_x1 / texture_size) * 16
+    v1 = (pixel_y1 / texture_size) * 16
+    u2 = (pixel_x2 / texture_size) * 16
+    v2 = (pixel_y2 / texture_size) * 16
 
     return [round(u1, 4), round(v1, 4), round(u2, 4), round(v2, 4)]
 

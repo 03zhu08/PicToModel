@@ -6,6 +6,7 @@ export interface GenerationParams {
   depthRatio: number
   enableColor: boolean
   textureResolution: number
+  symmetrical: boolean
 }
 
 interface ModelState {
@@ -26,7 +27,8 @@ const DEFAULT_PARAMS: GenerationParams = {
   extrusionMode: 'rounded',
   depthRatio: 0.4,
   enableColor: false,
-  textureResolution: 8
+  textureResolution: 8,
+  symmetrical: false
 }
 
 export function useModelGeneration() {
@@ -104,7 +106,8 @@ export function useModelGeneration() {
         extrusionMode: params.extrusionMode,
         depthRatio: params.depthRatio,
         enableColor: params.enableColor,
-        textureResolution: params.textureResolution
+        textureResolution: params.textureResolution,
+        symmetrical: params.symmetrical
       })
 
       setState((s) => ({

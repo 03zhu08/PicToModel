@@ -82,9 +82,9 @@ export default function ControlPanel({
         </label>
         <input
           type="range"
-          min={10}
+          min={1}
           max={100}
-          step={5}
+          step={1}
           value={params.depthRatio * 100}
           onChange={(e) => onParamsChange({ depthRatio: Number(e.target.value) / 100 })}
           className="slider-track w-full"
@@ -94,6 +94,28 @@ export default function ControlPanel({
           <span>Thick</span>
         </div>
       </div>
+
+      {/* Symmetrical (only for rounded mode) */}
+      {params.extrusionMode === 'rounded' && (
+        <div>
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={params.symmetrical}
+                onChange={(e) => onParamsChange({ symmetrical: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-mc-border rounded-full peer-checked:bg-mc-accent transition-colors" />
+              <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform peer-checked:translate-x-4" />
+            </div>
+            <span className="text-sm text-mc-text-secondary">Symmetrical</span>
+          </label>
+          <p className="text-xs text-mc-text-muted mt-1.5 ml-12">
+            Mirror the front to create a symmetrical back
+          </p>
+        </div>
+      )}
 
       {/* Enable Color */}
       <div>

@@ -139,6 +139,7 @@ ipcMain.handle('process-image', async (_event, payload: {
   depthRatio: number
   enableColor: boolean
   textureResolution: number
+  symmetrical: boolean
 }) => {
   try {
     const controller = new AbortController()
@@ -153,7 +154,8 @@ ipcMain.handle('process-image', async (_event, payload: {
         extrusion_mode: payload.extrusionMode,
         depth_ratio: payload.depthRatio,
         enable_color: payload.enableColor ?? false,
-        texture_resolution: payload.textureResolution ?? 8
+        texture_resolution: payload.textureResolution ?? 8,
+        symmetrical: payload.symmetrical ?? false
       }),
       signal: controller.signal
     })
@@ -204,10 +206,19 @@ ipcMain.handle('save-model-with-texture', async (
   })
 
   if (!result.canceled && result.filePath) {
-    writeFileSync(result.filePath, jsonData, 'utf-8')
-
     const baseName = result.filePath.replace(/\.json$/i, '')
-    const texturePath = `${baseName}_texture.png`
+    const textureFilename = `${baseName}_texture`
+    const texturePath = `${textureFilename}.png`
+
+    // Update JSON to reference the correct texture file
+    const modelData = JSON.parse(jsonData)
+    const relativeTextureName = textureFilename.split('/').pop() || 'model_texture'
+    modelData.textures = {
+      tex: relativeTextureName,
+      particle: relativeTextureName
+    }
+
+    writeFileSync(result.filePath, JSON.stringify(modelData, null, 2), 'utf-8')
     const textureBuffer = Buffer.from(texturePngBase64, 'base64')
     writeFileSync(texturePath, textureBuffer)
 

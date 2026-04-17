@@ -59,6 +59,7 @@ class ProcessRequest(BaseModel):
     depth_ratio: float = 0.4
     enable_color: bool = False
     texture_resolution: int = 8
+    symmetrical: bool = False
 
 
 class ProcessResponse(BaseModel):
@@ -80,6 +81,7 @@ def _do_process(
     depth_ratio: float,
     enable_color: bool,
     texture_resolution: int,
+    symmetrical: bool,
 ):
     if "," in image_data:
         image_b64 = image_data.split(",", 1)[1]
@@ -97,47 +99,59 @@ def _do_process(
             Image.LANCZOS,
         )
 
-    logger.info(f"Processing image {image.size}, resolution={resolution}, color={enable_color}")
+    logger.info(f"Processing image {image.size}, resolution={resolution}, color={enable_color}, texture_res={texture_resolution}")
 
     fg_image = remove_background(image)
     mask = extract_mask(fg_image, resolution)
-    voxel_grid = voxelize_mask(mask, extrusion_mode, depth_ratio)
+    voxel_grid = voxelize_mask(mask, extrusion_mode, depth_ratio, symmetrical)
     merged_boxes = greedy_mesh(voxel_grid)
+
+    if enable_color:
+        color_grid = sample_voxel_colors(fg_image, mask, resolution)
+    else:
+        color_grid = None
 
     texture_png = None
 
     if enable_color:
-        color_grid = sample_voxel_colors(fg_image, mask, resolution)
-        tile_size = texture_resolution
-        atlas, color_to_index, atlas_size = build_texture_atlas(color_grid, mask, tile_size)
-        texture_png = atlas_to_base64(atlas)
-        color_hex_map = get_voxel_color_hex(color_grid, mask)
+        # Use color_grid directly as texture (no atlas)
+        from PIL import Image as PILImage
+        texture_height, texture_width = color_grid.shape[:2]
+        texture = PILImage.new("RGB", (texture_width, texture_height))
+        for row in range(texture_height):
+            for col in range(texture_width):
+                if mask[row, col]:
+                    texture.putpixel((col, row), (
+                        int(color_grid[row, col, 0]),
+                        int(color_grid[row, col, 1]),
+                        int(color_grid[row, col, 2])
+                    ))
+        buf = io.BytesIO()
+        texture.save(buf, format="PNG")
+        texture_png = base64.b64encode(buf.getvalue()).decode()
+        logger.info(f"Texture: {texture_width}x{texture_height} pixels")
+
         model_json = generate_mc_model_colored(
             merged_boxes, voxel_grid.shape, color_grid, mask,
-            color_to_index, atlas_size, tile_size,
+            None, 0, 0
         )
     else:
-        color_hex_map = None
         model_json = generate_mc_model(merged_boxes, voxel_grid.shape)
 
-    h = mask.shape[0]
     voxels = []
-    colored_voxels = 0
     for x in range(voxel_grid.shape[0]):
         for y in range(voxel_grid.shape[1]):
             for z in range(voxel_grid.shape[2]):
                 if voxel_grid[x, y, z]:
                     v: dict = {"x": int(x), "y": int(y), "z": int(z)}
-                    if color_hex_map and (x, y) in color_hex_map:
-                        v["color"] = color_hex_map[(x, y)]
-                        colored_voxels += 1
+                    if enable_color and color_grid is not None:
+                        row = mask.shape[0] - 1 - y
+                        if 0 <= row < mask.shape[0] and 0 <= x < color_grid.shape[1] and mask[row, x]:
+                            r = int(color_grid[row, x, 0])
+                            g = int(color_grid[row, x, 1])
+                            b = int(color_grid[row, x, 2])
+                            v["color"] = f"#{r:02x}{g:02x}{b:02x}"
                     voxels.append(v)
-
-    if enable_color:
-        logger.info(f"Color map size: {len(color_hex_map) if color_hex_map else 0}, Colored voxels: {colored_voxels}/{len(voxels)}")
-        if color_hex_map:
-            sample_colors = list(color_hex_map.values())[:5]
-            logger.info(f"Sample colors: {sample_colors}")
 
     stats = {
         "elementCount": len(model_json["elements"]),
@@ -164,6 +178,7 @@ async def process_image(req: ProcessRequest):
             req.depth_ratio,
             req.enable_color,
             req.texture_resolution,
+            req.symmetrical,
         )
 
         return ProcessResponse(
