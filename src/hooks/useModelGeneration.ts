@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { api } from '../api'
 
 export interface GenerationParams {
   resolution: number
@@ -7,72 +8,82 @@ export interface GenerationParams {
   enableColor: boolean
   textureResolution: number
   symmetrical: boolean
+  rotationX: number
+  rotationY: number
+  rotationZ: number
 }
 
-interface ModelState {
-  imageData: string | null
-  imageName: string | null
+export interface ImageSession {
+  id: string
+  imageData: string
+  imageName: string
   voxels: VoxelData[]
   modelJson: MinecraftModel | null
   texturePng: string | null
   stats: { elementCount: number; dimensions: [number, number, number] } | null
   isProcessing: boolean
   error: string | null
-  backendReady: boolean
-  modelReady: boolean
+  params: GenerationParams
 }
 
 const DEFAULT_PARAMS: GenerationParams = {
   resolution: 16,
   extrusionMode: 'rounded',
-  depthRatio: 0.4,
+  depthRatio: 0.5,
   enableColor: false,
   textureResolution: 8,
-  symmetrical: false
+  symmetrical: false,
+  rotationX: 0,
+  rotationY: 0,
+  rotationZ: 0,
 }
 
-export function useModelGeneration() {
-  const [state, setState] = useState<ModelState>({
-    imageData: null,
-    imageName: null,
+let nextId = 1
+function createSession(): ImageSession {
+  return {
+    id: String(nextId++),
+    imageData: '',
+    imageName: '',
     voxels: [],
     modelJson: null,
     texturePng: null,
     stats: null,
     isProcessing: false,
     error: null,
-    backendReady: false,
-    modelReady: false
-  })
+    params: { ...DEFAULT_PARAMS },
+  }
+}
 
-  const [params, setParams] = useState<GenerationParams>(DEFAULT_PARAMS)
+export function useModelGeneration() {
+  const [sessions, setSessions] = useState<ImageSession[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [backendReady, setBackendReady] = useState(false)
+  const [modelReady, setModelReady] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const active = sessions.find((s) => s.id === activeSessionId) ?? null
+
   useEffect(() => {
-    window.api.onBackendReady(() => {
-      setState((s) => ({ ...s, backendReady: true }))
-    })
-    window.api.onBackendError((_e, msg) => {
-      setState((s) => ({ ...s, error: `Backend: ${msg}` }))
-    })
+    api.onBackendReady(() => setBackendReady(true))
+    api.onBackendError(() => {})
 
     const poll = () => {
-      window.api.getHealth().then((status) => {
+      api.getHealth().then((status) => {
         if (status.alive && status.modelReady) {
-          setState((s) => ({ ...s, backendReady: true, modelReady: true }))
+          setBackendReady(true)
+          setModelReady(true)
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
         } else if (status.alive) {
-          setState((s) => ({ ...s, backendReady: true }))
+          setBackendReady(true)
         }
-      }).catch(() => { /* ignore */ })
+      }).catch(() => {})
     }
 
     poll()
     intervalRef.current = setInterval(poll, 2000)
-
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
@@ -81,36 +92,67 @@ export function useModelGeneration() {
     }
   }, [])
 
-  const setImage = useCallback((data: string, name: string) => {
-    setState((s) => ({
-      ...s,
-      imageData: data,
-      imageName: name,
-      voxels: [],
-      modelJson: null,
-      texturePng: null,
-      stats: null,
-      error: null
-    }))
+  const updateSessionById = useCallback((id: string, updater: (s: ImageSession) => ImageSession) => {
+    setSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)))
   }, [])
 
-  const generate = useCallback(async () => {
-    if (!state.imageData) return
+  const ensureSession = useCallback(() => {
+    if (!activeSessionId) {
+      const session = createSession()
+      setSessions((prev) => [...prev, session])
+      setActiveSessionId(session.id)
+      return session.id
+    }
+    return activeSessionId
+  }, [activeSessionId])
 
-    setState((s) => ({ ...s, isProcessing: true, error: null }))
+  const addImage = useCallback((data: string, name: string) => {
+    const id = ensureSession()
+    updateSessionById(id, (s) => ({ ...s, imageData: data, imageName: name }))
+  }, [ensureSession, updateSessionById])
+
+  const switchSession = useCallback((id: string) => {
+    setActiveSessionId(id)
+  }, [])
+
+  const closeSession = useCallback((id: string) => {
+    setSessions((prev) => {
+      const idx = prev.findIndex((s) => s.id === id)
+      const next = prev.filter((s) => s.id !== id)
+      if (id === activeSessionId) {
+        if (next.length === 0) {
+          setActiveSessionId(null)
+        } else {
+          const newIdx = Math.min(idx, next.length - 1)
+          setActiveSessionId(next[newIdx].id)
+        }
+      }
+      return next
+    })
+  }, [activeSessionId])
+
+  const generate = useCallback(async () => {
+    if (!active?.imageData) return
+    const sessionId = active.id
+    const p = active.params
+
+    updateSessionById(sessionId, (s) => ({ ...s, isProcessing: true, error: null }))
 
     try {
-      const result = await window.api.processImage({
-        imageData: state.imageData,
-        resolution: params.resolution,
-        extrusionMode: params.extrusionMode,
-        depthRatio: params.depthRatio,
-        enableColor: params.enableColor,
-        textureResolution: params.textureResolution,
-        symmetrical: params.symmetrical
+      const result = await api.processImage({
+        imageData: active.imageData,
+        resolution: p.resolution,
+        extrusionMode: p.extrusionMode,
+        depthRatio: p.depthRatio,
+        enableColor: p.enableColor,
+        textureResolution: p.textureResolution,
+        symmetrical: p.symmetrical,
+        rotationX: p.rotationX,
+        rotationY: p.rotationY,
+        rotationZ: p.rotationZ,
       })
 
-      setState((s) => ({
+      updateSessionById(sessionId, (s) => ({
         ...s,
         voxels: result.voxels,
         modelJson: result.model_json,
@@ -120,33 +162,45 @@ export function useModelGeneration() {
       }))
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      setState((s) => ({ ...s, isProcessing: false, error: message }))
+      updateSessionById(sessionId, (s) => ({ ...s, isProcessing: false, error: message }))
     }
-  }, [state.imageData, params])
+  }, [active, updateSessionById])
 
   const exportModel = useCallback(async () => {
-    if (!state.modelJson) return
+    if (!active?.modelJson) return
 
-    const jsonStr = JSON.stringify(state.modelJson, null, 2)
-    const baseName = state.imageName
-      ? state.imageName.replace(/\.[^.]+$/, '')
-      : 'model'
+    const jsonStr = JSON.stringify(active.modelJson, null, 2)
+    const baseName = active.imageName.replace(/\.[^.]+$/, '') || 'model'
 
-    if (state.texturePng) {
-      await window.api.saveModelWithTexture(jsonStr, state.texturePng, `${baseName}.json`)
+    if (active.texturePng) {
+      await api.saveModelWithTexture(jsonStr, active.texturePng, `${baseName}.json`)
     } else {
-      await window.api.saveModel(jsonStr, `${baseName}.json`)
+      await api.saveModel(jsonStr, `${baseName}.json`)
     }
-  }, [state.modelJson, state.texturePng, state.imageName])
+  }, [active])
 
   const updateParams = useCallback((updates: Partial<GenerationParams>) => {
-    setParams((p) => ({ ...p, ...updates }))
-  }, [])
+    const id = ensureSession()
+    updateSessionById(id, (s) => ({ ...s, params: { ...s.params, ...updates } }))
+  }, [ensureSession, updateSessionById])
 
   return {
-    ...state,
-    params,
-    setImage,
+    imageData: active?.imageData || null,
+    imageName: active?.imageName || null,
+    voxels: active?.voxels ?? [],
+    modelJson: active?.modelJson ?? null,
+    texturePng: active?.texturePng ?? null,
+    stats: active?.stats ?? null,
+    isProcessing: active?.isProcessing ?? false,
+    error: active?.error ?? null,
+    backendReady,
+    modelReady,
+    params: active?.params ?? DEFAULT_PARAMS,
+    sessions,
+    activeSessionId,
+    addImage,
+    switchSession,
+    closeSession,
     generate,
     exportModel,
     updateParams

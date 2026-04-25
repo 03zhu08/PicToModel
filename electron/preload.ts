@@ -2,11 +2,16 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
   processImage: (payload: {
-    imageData: string
+    imageData: string | null
     resolution: number
     extrusionMode: string
     depthRatio: number
     enableColor: boolean
+    textureResolution: number
+    symmetrical: boolean
+    rotationX: number
+    rotationY: number
+    rotationZ: number
   }) => ipcRenderer.invoke('process-image', payload),
 
   saveModel: (jsonData: string, filename: string) =>

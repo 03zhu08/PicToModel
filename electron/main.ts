@@ -133,13 +133,16 @@ function createWindow(): void {
 }
 
 ipcMain.handle('process-image', async (_event, payload: {
-  imageData: string
+  imageData: string | null
   resolution: number
   extrusionMode: string
   depthRatio: number
   enableColor: boolean
   textureResolution: number
   symmetrical: boolean
+  rotationX: number
+  rotationY: number
+  rotationZ: number
 }) => {
   try {
     const controller = new AbortController()
@@ -155,7 +158,10 @@ ipcMain.handle('process-image', async (_event, payload: {
         depth_ratio: payload.depthRatio,
         enable_color: payload.enableColor ?? false,
         texture_resolution: payload.textureResolution ?? 8,
-        symmetrical: payload.symmetrical ?? false
+        symmetrical: payload.symmetrical ?? false,
+        rotation_x: payload.rotationX ?? 0,
+        rotation_y: payload.rotationY ?? 0,
+        rotation_z: payload.rotationZ ?? 0,
       }),
       signal: controller.signal
     })
@@ -166,7 +172,14 @@ ipcMain.handle('process-image', async (_event, payload: {
       let detail = 'Processing failed'
       try {
         const err = await response.json()
-        detail = err.detail || detail
+        if (Array.isArray(err.detail)) {
+          // FastAPI validation errors
+          detail = err.detail.map((e: any) =>
+            `${e.loc.join('.')}: ${e.msg}`
+          ).join('; ')
+        } else if (typeof err.detail === 'string') {
+          detail = err.detail
+        }
       } catch { /* ignore parse errors */ }
       throw new Error(detail)
     }

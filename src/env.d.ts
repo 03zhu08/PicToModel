@@ -1,13 +1,27 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  readonly VITE_TARGET: 'electron' | 'web'
+  readonly VITE_API_URL?: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+
 interface Window {
   api: {
     processImage: (payload: {
-      imageData: string
+      imageData: string | null
       resolution: number
       extrusionMode: string
       depthRatio: number
       enableColor: boolean
+      textureResolution: number
+      symmetrical: boolean
+      rotationX: number
+      rotationY: number
+      rotationZ: number
     }) => Promise<ProcessResult>
     saveModel: (jsonData: string, filename: string) => Promise<string>
     saveModelWithTexture: (

@@ -19,7 +19,7 @@ export default function ControlPanel({
   canGenerate,
   canExport,
   isProcessing,
-  hasTexture
+  hasTexture,
 }: Props) {
   return (
     <div className="flex flex-col gap-5">
@@ -50,28 +50,6 @@ export default function ControlPanel({
         </div>
       </div>
 
-      {/* Extrusion Mode */}
-      <div>
-        <label className="text-sm text-mc-text-secondary mb-2 block">Extrusion Mode</label>
-        <div className="grid grid-cols-2 gap-2">
-          {(['flat', 'rounded'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => onParamsChange({ extrusionMode: mode })}
-              className={`
-                px-3 py-1.5 rounded text-sm font-medium transition-all capitalize
-                ${params.extrusionMode === mode
-                  ? 'bg-mc-accent text-white shadow-sm'
-                  : 'bg-white text-mc-text-secondary border border-mc-border hover:bg-mc-hover'
-                }
-              `}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Depth Ratio */}
       <div>
         <label className="flex items-center justify-between text-sm mb-2">
@@ -92,6 +70,28 @@ export default function ControlPanel({
         <div className="flex justify-between text-xs text-mc-text-muted mt-1">
           <span>Thin</span>
           <span>Thick</span>
+        </div>
+      </div>
+
+      {/* Extrusion Mode */}
+      <div>
+        <label className="text-sm text-mc-text-secondary mb-2 block">Extrusion Mode</label>
+        <div className="grid grid-cols-2 gap-2">
+          {(['flat', 'rounded'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => onParamsChange({ extrusionMode: mode })}
+              className={`
+                px-3 py-1.5 rounded text-sm font-medium transition-all capitalize
+                ${params.extrusionMode === mode
+                  ? 'bg-mc-accent text-white shadow-sm'
+                  : 'bg-white text-mc-text-secondary border border-mc-border hover:bg-mc-hover'
+                }
+              `}
+            >
+              {mode}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -133,7 +133,7 @@ export default function ControlPanel({
           <span className="text-sm text-mc-text-secondary">Enable Color</span>
         </label>
         <p className="text-xs text-mc-text-muted mt-1.5 ml-12">
-          Sample colors from the original image onto the model
+          Sample colors from the image onto the model
         </p>
       </div>
 
@@ -149,8 +149,8 @@ export default function ControlPanel({
           <input
             type="range"
             min={4}
-            max={16}
-            step={2}
+            max={128}
+            step={4}
             value={params.textureResolution}
             onChange={(e) => onParamsChange({ textureResolution: Number(e.target.value) })}
             className="slider-track w-full"
@@ -161,6 +161,39 @@ export default function ControlPanel({
           </div>
         </div>
       )}
+
+      {/* Rotation */}
+      <div>
+        <label className="text-sm text-mc-text-secondary mb-2 block">
+          Rotation (around center)
+        </label>
+        {(['X', 'Y', 'Z'] as const).map((axis) => {
+          const key = `rotation${axis}` as 'rotationX' | 'rotationY' | 'rotationZ'
+          return (
+            <div key={axis} className="mb-2">
+              <label className="flex items-center justify-between text-xs mb-1">
+                <span className="text-mc-text-secondary">{axis}-axis</span>
+                <span className="text-mc-accent font-mono font-semibold text-xs">
+                  {params[key].toFixed(0)}&deg;
+                </span>
+              </label>
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={params[key]}
+                onChange={(e) => onParamsChange({ [key]: Number(e.target.value) })}
+                className="slider-track w-full"
+              />
+            </div>
+          )
+        })}
+        <div className="flex justify-between text-xs text-mc-text-muted mt-1">
+          <span>-180&deg;</span>
+          <span>180&deg;</span>
+        </div>
+      </div>
 
       {/* Action Buttons */}
       <div className="flex flex-col gap-2 mt-2">
