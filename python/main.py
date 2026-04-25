@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,8 +13,8 @@ from PIL import Image
 
 from segmentation import remove_background, extract_mask
 from voxelizer import voxelize_mask
-from mc_model import generate_mc_model, generate_mc_model_colored, greedy_mesh
-from colorizer import sample_voxel_colors, build_texture_atlas, atlas_to_base64, get_voxel_color_hex
+from mc_model import generate_mc_model, generate_mc_model_colored, greedy_mesh, rotate_model_elements
+from colorizer import sample_voxel_colors
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,13 +54,16 @@ app.add_middleware(
 
 
 class ProcessRequest(BaseModel):
-    image_data: str
+    image_data: str | None = None
     resolution: int = 16
     extrusion_mode: str = "rounded"
     depth_ratio: float = 0.4
     enable_color: bool = False
     texture_resolution: int = 8
     symmetrical: bool = False
+    rotation_x: float = 0.0
+    rotation_y: float = 0.0
+    rotation_z: float = 0.0
 
 
 class ProcessResponse(BaseModel):
@@ -74,7 +78,7 @@ async def health():
     return {"status": "ok", "model_ready": model_ready}
 
 
-def _do_process(
+def _process_image(
     image_data: str,
     resolution: int,
     extrusion_mode: str,
@@ -82,6 +86,9 @@ def _do_process(
     enable_color: bool,
     texture_resolution: int,
     symmetrical: bool,
+    rotation_x: float = 0.0,
+    rotation_y: float = 0.0,
+    rotation_z: float = 0.0,
 ):
     if "," in image_data:
         image_b64 = image_data.split(",", 1)[1]
@@ -89,7 +96,15 @@ def _do_process(
         image_b64 = image_data
 
     image_bytes = base64.b64decode(image_b64)
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    raw = Image.open(io.BytesIO(image_bytes))
+    logger.info(f"Raw image mode: {raw.mode}")
+
+    orig_has_alpha = (
+        raw.mode in ('RGBA', 'LA', 'PA') or
+        (raw.mode == 'P' and 'transparency' in raw.info)
+    )
+
+    image = raw.convert("RGBA")
 
     max_dim = 1024
     if max(image.size) > max_dim:
@@ -99,9 +114,18 @@ def _do_process(
             Image.LANCZOS,
         )
 
-    logger.info(f"Processing image {image.size}, resolution={resolution}, color={enable_color}, texture_res={texture_resolution}")
+    logger.info(f"Processing image {image.size}, resolution={resolution}, orig_has_alpha={orig_has_alpha}")
 
-    fg_image = remove_background(image)
+    if orig_has_alpha:
+        transparent_pixels = int(np.sum(np.array(image.split()[-1]) < 240))
+        total_pixels = image.size[0] * image.size[1]
+        logger.info(f"Using original alpha: {transparent_pixels}/{total_pixels} pixels transparent")
+        fg_image = image
+    else:
+        logger.info("No pre-existing alpha — running rembg background removal")
+        fg_image = remove_background(image)
+        fg_image = fg_image.convert("RGBA")
+
     mask = extract_mask(fg_image, resolution)
     voxel_grid = voxelize_mask(mask, extrusion_mode, depth_ratio, symmetrical)
     merged_boxes = greedy_mesh(voxel_grid)
@@ -114,10 +138,8 @@ def _do_process(
     texture_png = None
 
     if enable_color:
-        # Use color_grid directly as texture (no atlas)
-        from PIL import Image as PILImage
         texture_height, texture_width = color_grid.shape[:2]
-        texture = PILImage.new("RGB", (texture_width, texture_height))
+        texture = Image.new("RGB", (texture_width, texture_height))
         for row in range(texture_height):
             for col in range(texture_width):
                 if mask[row, col]:
@@ -138,24 +160,46 @@ def _do_process(
     else:
         model_json = generate_mc_model(merged_boxes, voxel_grid.shape)
 
+    model_json = rotate_model_elements(model_json, rotation_x, rotation_y, rotation_z)
+
+    if rotation_x or rotation_y or rotation_z:
+        from voxelizer import _build_rotation_matrix
+        sx, sy, sz = voxel_grid.shape
+        pivot = np.array([sx / 2.0, sy / 2.0, sz / 2.0])
+        R = _build_rotation_matrix(rotation_x, rotation_y, rotation_z)
+        coords = np.argwhere(voxel_grid).astype(float)
+        rotated = np.round((coords - pivot) @ R.T + pivot).astype(int)
+        mins = rotated.min(axis=0)
+        rotated -= mins
+        voxel_positions = {(int(r[0]), int(r[1]), int(r[2])) for r in rotated}
+        shape_dims = [int(rotated[:, 0].max()) + 1, int(rotated[:, 1].max()) + 1, int(rotated[:, 2].max()) + 1]
+    else:
+        voxel_positions = None
+
     voxels = []
     for x in range(voxel_grid.shape[0]):
         for y in range(voxel_grid.shape[1]):
             for z in range(voxel_grid.shape[2]):
-                if voxel_grid[x, y, z]:
-                    v: dict = {"x": int(x), "y": int(y), "z": int(z)}
-                    if enable_color and color_grid is not None:
-                        row = mask.shape[0] - 1 - y
-                        if 0 <= row < mask.shape[0] and 0 <= x < color_grid.shape[1] and mask[row, x]:
-                            r = int(color_grid[row, x, 0])
-                            g = int(color_grid[row, x, 1])
-                            b = int(color_grid[row, x, 2])
-                            v["color"] = f"#{r:02x}{g:02x}{b:02x}"
-                    voxels.append(v)
+                if not voxel_grid[x, y, z]:
+                    continue
+                if voxel_positions is not None:
+                    rel = np.array([x, y, z], dtype=float) - pivot
+                    new_pos = np.round(pivot + R @ rel).astype(int) - mins
+                    v: dict = {"x": int(new_pos[0]), "y": int(new_pos[1]), "z": int(new_pos[2])}
+                else:
+                    v = {"x": int(x), "y": int(y), "z": int(z)}
+                if enable_color and color_grid is not None:
+                    row = mask.shape[0] - 1 - y
+                    if 0 <= row < mask.shape[0] and 0 <= x < color_grid.shape[1] and mask[row, x]:
+                        r = int(color_grid[row, x, 0])
+                        g = int(color_grid[row, x, 1])
+                        b = int(color_grid[row, x, 2])
+                        v["color"] = f"#{r:02x}{g:02x}{b:02x}"
+                voxels.append(v)
 
     stats = {
         "elementCount": len(model_json["elements"]),
-        "dimensions": list(voxel_grid.shape),
+        "dimensions": shape_dims if voxel_positions is not None else list(voxel_grid.shape),
     }
 
     logger.info(f"Generated {stats['elementCount']} elements, {len(voxels)} voxels")
@@ -167,11 +211,15 @@ async def process_image(req: ProcessRequest):
     if not model_ready:
         raise HTTPException(status_code=503, detail="Model is still loading, please wait...")
 
+    if not req.image_data:
+        raise HTTPException(status_code=400, detail="Image data is required")
+
     try:
         loop = asyncio.get_event_loop()
+
         voxels, model_json, stats, texture_png = await loop.run_in_executor(
             executor,
-            _do_process,
+            _process_image,
             req.image_data,
             req.resolution,
             req.extrusion_mode,
@@ -179,6 +227,9 @@ async def process_image(req: ProcessRequest):
             req.enable_color,
             req.texture_resolution,
             req.symmetrical,
+            req.rotation_x,
+            req.rotation_y,
+            req.rotation_z,
         )
 
         return ProcessResponse(
@@ -188,6 +239,8 @@ async def process_image(req: ProcessRequest):
             texture_png=texture_png,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Processing failed")
         raise HTTPException(status_code=500, detail=str(e))
